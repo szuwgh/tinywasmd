@@ -1,1 +1,3 @@
+mod binary;
+
 struct WASM {}
