@@ -1,6 +1,6 @@
 {
     "[rust]": {
-        "editor.defaultFormatter": "matklad.rust-analyzer"
+        "editor.defaultFormatter": "rust-lang.rust-analyzer"
     },
     "rust-client.channel": "nightly-2021-12-05",
     "rust-client.rustupPath": "$HOME/.cargo/bin/rustup",
