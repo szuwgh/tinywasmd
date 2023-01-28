@@ -5,11 +5,31 @@ use varintrs::{Binary, ReadBytesVarExt};
 
 const SECTION_CUSTOM: u8 = 0;
 const SECTION_TYPE: u8 = 1;
+const SECTION_IMPORT: u8 = 2;
+const SECTION_FUNCTION: u8 = 3;
+const SECTION_TABLE: u8 = 4;
+const SECTION_MEMORY: u8 = 5;
+const SECTION_GLOBAL: u8 = 6;
+const SECTION_EXPORT: u8 = 7;
+const SECTION_START: u8 = 8;
+const SECTION_ELEMENT: u8 = 9;
+const SECTION_CODE: u8 = 10;
+const SECTION_DATA: u8 = 11;
+const SECTION_DATA_COUNT: u8 = 12;
+const SECTION_TAG: u8 = 13;
 
 struct Module {
     Magic: u32,
     Version: u32,
     type_section: Box<[FunctionType]>,
+}
+
+impl<'a> Module {
+    fn read_type_sec(&mut self, reader: &mut BinaryReader<'a>) -> WasmResult<()> {
+        let func_type_count = reader.read_var_u32()? as usize;
+        let func_type: Vec<FunctionType> = Vec::with_capacity(func_type_count);
+        Ok(())
+    }
 }
 
 pub enum ValType {
@@ -47,8 +67,6 @@ struct FunctionType {
 
 impl<'a> FunctionType {
     fn from_reader(reader: &mut BinaryReader<'a>) -> WasmResult<FunctionType> {
-        let func_type_count = reader.read_var_u32()?;
-        
         Ok(())
     }
 }
@@ -88,8 +106,12 @@ impl<'a> Parser {
         let version = reader
             .ru32()
             .expect(WasmError::UnexpectedVersion.to_string().as_str());
-
-        let sec_id = reader.read_var_u32()?;
+        // 读取段id
+        let sec_id = reader.read_var_u32()? as u8;
+        match sec_id {
+            SECTION_TYPE => {}
+            _ => {}
+        }
         Ok(())
     }
 }
