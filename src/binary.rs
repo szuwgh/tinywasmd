@@ -1,6 +1,8 @@
+use super::{format_err, reader_bail};
 use crate::util::error::{WasmError, WasmResult};
 use byteorder::{LittleEndian, ReadBytesExt};
-use std::io::Read;
+use std::marker;
+use std::{collections::btree_map::VacantEntry, io::Read};
 use varintrs::{Binary, ReadBytesVarExt};
 
 const SECTION_CUSTOM: u8 = 0;
@@ -18,10 +20,15 @@ const SECTION_DATA: u8 = 11;
 const SECTION_DATA_COUNT: u8 = 12;
 const SECTION_TAG: u8 = 13;
 
+pub enum Components {
+    TypeSection(),
+    FunctionSection(FunctionType),
+}
+
 struct Module {
     Magic: u32,
     Version: u32,
-    type_section: Box<[FunctionType]>,
+    //type_section: Box<[FunctionType]>,
 }
 
 impl<'a> Module {
@@ -41,6 +48,7 @@ pub enum ValType {
     ExternRef,
     FuncRef,
 }
+
 impl ValType {
     pub(crate) fn from_byte(byte: u8) -> Option<ValType> {
         match byte {
@@ -56,18 +64,37 @@ impl ValType {
     }
 }
 
+pub trait ComponentsReader<'a>: Sized {
+    fn from_reader(reader: &mut BinaryReader<'a>) -> WasmResult<Self>;
+}
+
+impl<'a> ComponentsReader<'a> for ValType {
+    fn from_reader(reader: &mut BinaryReader<'a>) -> WasmResult<Self> {
+        match ValType::from_byte(reader.peek()?) {
+            Some(vt) => Ok(vt),
+            None => {
+                reader_bail!(1, "invalid value type")
+            }
+        }
+    }
+}
+
 pub enum Type {
     Func(FunctionType),
 }
 
-struct FunctionType {
+pub struct FunctionType {
     params: Box<[ValType]>,
     returns: Box<[ValType]>,
 }
 
 impl<'a> FunctionType {
-    fn from_reader(reader: &mut BinaryReader<'a>) -> WasmResult<FunctionType> {
-        Ok(())
+    fn from_reader(reader: &mut BinaryReader<'a>) {
+        // let byte_count = reader.read_var_u32();
+        // 读取 type 大小
+        //     let type_count = reader.rusize();
+        //  //
+        // let vec: Vec<FunctionType> = Vec::with_capacity(type_count);
     }
 }
 
@@ -96,6 +123,58 @@ impl Module {
     fn new() {}
 }
 
+// section 读取
+struct SectionReader<'a, T> {
+    reader: BinaryReader<'a>, //二进制文件读取
+    count: usize,             // 有多少个 section
+    _marker: marker::PhantomData<T>,
+}
+
+impl<'a, T> SectionReader<'a, T> {
+    fn new(data: &'a [u8]) -> WasmResult<Self> {
+        let mut reader = BinaryReader::new(data);
+        let count = reader.rusize()?;
+        Ok(SectionReader {
+            reader,
+            count,
+            _marker: marker::PhantomData,
+        })
+    }
+}
+
+impl<'a, T> IntoIterator for SectionReader<'a, T>
+where
+    T: ComponentsReader<'a>,
+{
+    type Item = WasmResult<T>;
+    type IntoIter = SectionReaderIntoIter<'a, T>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        SectionReaderIntoIter {
+            remaining: self.count,
+            section: self,
+        }
+    }
+}
+
+struct SectionReaderIntoIter<'a, T> {
+    section: SectionReader<'a, T>,
+    remaining: usize,
+}
+
+impl<'a, T> Iterator for SectionReaderIntoIter<'a, T>
+where
+    T: ComponentsReader<'a>,
+{
+    type Item = WasmResult<T>;
+    fn next(&mut self) -> Option<<Self as Iterator>::Item> {
+        if self.remaining == 0 {
+            return None;
+        }
+        None
+    }
+}
+
 struct Parser {}
 
 impl<'a> Parser {
@@ -114,19 +193,64 @@ impl<'a> Parser {
         }
         Ok(())
     }
+
+    fn section(reader: &mut BinaryReader<'a>) {}
 }
 
-struct BinaryReader<'a> {
+pub struct BinaryReader<'a> {
     data: &'a [u8],
-    postion: usize,
+    position: usize,
+    offset: usize,
+    // _marker: marker::PhantomData<T>,
+}
+
+struct BinaryIterReader<'a, 'm, T> {
+    size: usize,
+    reader: &'m BinaryReader<'a>,
+    _marker: marker::PhantomData<T>,
+}
+
+impl<'a, 'm, T> Iterator for BinaryIterReader<'a, 'm, T> {
+    type Item = WasmResult<T>;
+    fn next(&mut self) -> Option<<Self as Iterator>::Item> {
+        todo!()
+    }
 }
 
 impl<'a> BinaryReader<'a> {
+    fn new_with_offset(data: &'a [u8], offset: usize) {}
+
     fn new(data: &'a [u8]) -> BinaryReader<'a> {
         Self {
             data: data,
-            postion: 0,
+            position: 0,
+            offset: data.len(),
         }
+    }
+
+    fn eof(&self) -> bool {
+        self.position >= self.data.len()
+    }
+
+    fn verify_has_byte() -> WasmResult<()> {
+        Ok(())
+    }
+
+    fn peek(&self) -> WasmResult<u8> {
+        Ok(self.data[self.position])
+    }
+
+    fn advance(&mut self, size: usize) {
+        self.position = self.position + size
+    }
+
+    fn read_iter<'m, T>(&'m mut self) -> WasmResult<BinaryIterReader<'a, 'm, T>> {
+        let size = self.rusize()?;
+        Ok(BinaryIterReader {
+            size: size,
+            reader: self,
+            _marker: marker::PhantomData,
+        })
     }
 
     fn read_var_u32(&mut self) -> WasmResult<u32> {
@@ -139,9 +263,15 @@ impl<'a> BinaryReader<'a> {
         Ok(b)
     }
 
+    //read u32
     fn ru32(&mut self) -> WasmResult<u32> {
         let b = self.read_u32::<LittleEndian>()?;
         Ok(b)
+    }
+
+    fn rusize(&mut self) -> WasmResult<usize> {
+        let b = self.ru32()?;
+        Ok(b as usize)
     }
 
     fn ru16(&mut self) -> WasmResult<u16> {
@@ -152,8 +282,8 @@ impl<'a> BinaryReader<'a> {
 
 impl<'a> Read for BinaryReader<'a> {
     fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
-        let n = Read::read(&mut &self.data[self.postion..], buf)?;
-        self.postion += n;
+        let n = Read::read(&mut &self.data[self.position..], buf)?;
+        self.position += n;
         Ok(n)
     }
 }

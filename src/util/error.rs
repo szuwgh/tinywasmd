@@ -14,6 +14,8 @@ pub enum WasmError {
     UnexpectedMagic,
     #[error("unexpected end of binary version")]
     UnexpectedVersion,
+    #[error("binary reader error {0}")]
+    BinaryReaderError(String),
 }
 
 impl From<&str> for WasmError {
